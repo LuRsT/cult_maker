@@ -5,6 +5,8 @@ from openai import OpenAI
 
 API_KEY = os.environ.get("GEMINI_API")
 GEMINI_MODEL = "gemini-1.5-flash"
+OUTPUT_FILENAME = "output.md"
+NUMBER_OF_QUESTIONS = 1
 
 
 def main():
@@ -19,6 +21,9 @@ def main():
         """,
     )
 
+    cult_name = cultist.generate_content("What's the cult name? Don't be mysterious, just tell me straight up.")
+    cult_name = cult_name.text
+
     interviewer = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
         system_instruction="""
@@ -28,16 +33,17 @@ def main():
         """,
     )
 
+    interview_text = ""
     transcript = ""
     the_question = interviewer.generate_content(
         "Ask the first question, also explain who and where you are, the surroundings and time of the day."
     )
-    print(f"Interviewer: {the_question.text}")
+    interview_text += f"Interviewer: {the_question.text}"
     transcript += the_question.text + "\n"
 
-    for _ in range(8):
+    for _ in range(NUMBER_OF_QUESTIONS):
         response = cultist.generate_content(the_question.text)
-        print(f"Cultist: {response.text}")
+        interview_text += f"Cultist: {response.text}"
         transcript += response.text + "\n\n"
 
         # Is this doing anything?
@@ -46,18 +52,14 @@ def main():
             content=response.text,
         )
 
-        notes = interviewer.generate_content(
-            f"This was answer: {response.text}. Write some notes on it",
-        )
-        print(f"Interviewer Notes: {notes.text}\n")
-
         the_question = interviewer.generate_content(
             f"This was answer: {response.text}. Ask one single follow up question",
         )
+        interview_text += f"Interviewer: {the_question.text}"
         transcript += the_question.text + "\n"
-        time.sleep(10)
 
-    print("END OF INTERVIEW\n\n---\n\n")
+        # TODO: I can do this better
+        time.sleep(10)
 
     reporter = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
@@ -70,23 +72,50 @@ def main():
     )
 
     the_answer = reporter.generate_content("What did you learn? Be detailed")
-    print(f"Reporter: {the_answer.text}")
+    reporter_text = f"Reporter: {the_answer.text}"
 
     last_reply = cultist.generate_content(
         "20 years after the interview, what happend to you and the interviewer? Reply with a matter of fact answer, no mystery please. Explain the location and time of day too"
     )
 
-    print(f"20 years later...\n{last_reply.text}")
+    future_text = f"20 years later...\n{last_reply.text}"
 
-    cult_imagery = cultist.generate_content(
-        "Describe a specific piece of art that was drawn by one of the cult members that best describes the cult"
+    images = []
+    if os.environ.get("IMAGE_GEN"):
+        cult_image = cultist.generate_content(
+            "Describe a specific piece of art that was drawn by one of the cult members that best describes the cult"
+        )
+        img = generate_image(cult_image.text)
+        images.append(f"![]({img}) \n_Fig 1. Art found in cult's HQ_")
+        # print(f"Prompt for image: {cult_imagery.text}")
+
+
+    #### BOOK ####
+
+    cultist.generate_content(
+        generation_config=genai.types.GenerationConfig(
+            # Only one candidate for now.
+            candidate_count=1,
+            max_output_tokens=8192,
+        ),
     )
 
-    print("---")
-    print(generate_image(cult_imagery.text))
+    write_book(cult_name, book_text, interview_text, reporter_text, future_text, images)
+    print("Book printed")
 
-    print("Fig 1: Art found in the cult's HQ")
-    print(f"Prompt for image: {cult_imagery.text}")
+
+def write_book(cult_name: str, book: str, interview_text: str, reporter_text: str, future_text: str, images: list) -> None:
+    with open(OUTPUT_FILENAME, "w") as output_file:
+        output_file.write(f"# {cult_name}\n")
+        output_file.write("\n## The Interview\n")
+        output_file.write(interview_text)
+        output_file.write("\n## Reporter Notes\n")
+        output_file.write(reporter_text)
+        output_file.write("\n## Annex\n")
+        for img in images:
+            output_file.write(img)
+        output_file.write("\n\n")
+        output_file.write(future_text)
 
 
 def generate_image(prompt: str) -> str:
@@ -95,7 +124,6 @@ def generate_image(prompt: str) -> str:
     """
     client = OpenAI()
     response = client.images.generate(model="dall-e-3", prompt=prompt)
-
     return response.data[0].url
 
 
